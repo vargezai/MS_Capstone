@@ -23,7 +23,7 @@ np.random.seed(42)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_2001_2026.csv"
+DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_CLEAN.csv"
 OUTPUT_DIR   = PROJECT_ROOT / "outputs" / "BH5"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 

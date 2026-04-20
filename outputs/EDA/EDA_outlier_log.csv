@@ -1,0 +1,8 @@
+Issue,N,Treatment
+Negative Total_Generation_MWh,22,Set to NaN (DC pumped storage artefact)
+Negative Fossil_Intensity,3,Clamped to 0 (pumped storage calculation artefact)
+Negative Nuclear_Share_Pct,38,Clamped to 0 (EIA net-metering reporting artefact)
+CO2_Intensity = 0,1,Set to NaN (implausible zero — missing eGRID entry)
+RPS_Target_Pct=10000 (TX),301,Replaced with 3.0 (TX MW mandate ≈ 3% generation equivalent)
+High CO2 > 1.1,50,Flagged only — legitimate 100% fossil small grid
+High Renewable IQR outliers,1652,No change — hydro-heavy states are legitimate
