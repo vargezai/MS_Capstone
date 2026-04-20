@@ -168,7 +168,8 @@ All data are drawn exclusively from U.S. government agencies and publicly access
 
 ### 3.2 Data Dictionary
 
-**Master Panel Dataset:** `FINAL_MASTER_DATASET_2001_2026.csv`  
+**Master Panel Dataset:** `FINAL_MASTER_DATASET_CLEAN.csv` (outlier-treated; 15,652 rows × 42 cols)  
+*Source:* `FINAL_MASTER_DATASET_2001_2026.csv` → cleaned by `src/outlier_treatment.py`  
 Unit of observation: State × Month (for LSTM); State × Year (for panel regressions)  
 Dimensions: 51 states × 22 years × 12 months = 13,464 monthly records (panel models use annual aggregates: 1,122 observations)
 
@@ -199,34 +200,51 @@ The data loading pipeline (`src/data_loader.py`) executes 14 sequential steps:
 3. **Consumption loading** — reads `consumption_monthly.xlsx`, merges into generation panel
 4. **eGRID loading** — reads 14 annual eGRID files (2004–2023) with year-specific sheet names and header rows; converts lb/MWh → short tons/MWh (÷ 2,000)
 5. **Temperature loading** — reads NOAA climate division data; deduplicates multi-division states by averaging; computes `Temp_Extreme` using 10th/90th percentiles
-6. **GDP processing** — reads BEA `GDP_Table.xlsx`; parses `GeoName` and `Description` columns; extracts real GDP series; expands annual → monthly via forward fill
+6. **GDP processing** — reads BEA `GDP_Table.xlsx` (SQGDP1 quarterly format); reconstructs annual GDP index levels from annualized percent-change series; expands to monthly via forward fill
 7. **RPS panel construction** — reads `RPS_list.xlsx`; creates state-year `Has_RPS` indicator and `RPS_Pct` mandated share
 8. **Merge diagnostics** — reports missing state-year combinations before merging
 9. **Dataset merging** — sequential left joins on State × Year × Month keys
-10. **CO₂ intensity proxy creation** — fills eGRID gaps using EIA generation mix as proxy
+10. **CO₂ intensity proxy creation** — fills eGRID gaps using EIA generation mix as proxy (r = 0.969 vs. actual eGRID)
 11. **Derived variable addition** — computes `High_Decarbonizer`, `High_Fossil_Backup`, `Log_GDP`, census region assignment
 12. **Final validation** — reports completeness and checks for implausible values
 13. **Output saving** — writes master CSV, compact CSV, and summary statistics
+
+**Step 14 — Outlier Detection & Rectification** (`src/outlier_treatment.py`): Seven data quality issues were identified and resolved before any analysis:
+
+| Issue | Rows | Treatment |
+|-------|------|-----------|
+| Negative `Total_Generation_MWh` | 22 | Set to NaN — DC pumped storage artefact |
+| Negative `Fossil_Intensity` | 3 | Clamped to 0 — DC 2018 calculation artefact |
+| Negative `Nuclear_Share_Pct` | 38 | Clamped to 0 — EIA net-metering rounding (7 states) |
+| `CO2_Intensity = 0` | 1 | Set to NaN — DC Oct 2017 implausible zero |
+| `RPS_Target_Pct = 10,000` (TX) | 301 | Replaced with 3.0% — TX MW mandate, not percentage |
+| `CO2 > 1.1` (DC 2009, KY, OH, WV) | 50 | Flagged only — legitimate 100% fossil grids |
+| High renewable share (WA, ID, OR, SD…) | 1,652 | No change — legitimate hydro-heavy states |
+
+Clean dataset: `FINAL_MASTER_DATASET_CLEAN.csv` (15,652 rows, 42 columns including `CO2_Outlier_Flag`). All five BH analyses use this clean dataset.
 
 ### 3.4 Repository Structure
 
 ```
 qm640_energy_analysis/
 ├── data/
-│   ├── raw/                          # Source files (not committed to git)
+│   ├── raw/                               # Source files (gitignored)
 │   │   ├── generation_monthly.xlsx
 │   │   ├── consumption_monthly.xlsx
 │   │   ├── GDP_Table.xlsx
 │   │   ├── RPS_list.xlsx
 │   │   ├── average_monthly_temperature_by_state_1950-2022.csv
 │   │   └── eGRID2009_data.xls ... egrid2023_data_rev2.xlsx
-│   └── processed/                    # Pipeline outputs
-│       ├── FINAL_MASTER_DATASET_2001_2026.csv
+│   └── processed/                         # Pipeline outputs
+│       ├── FINAL_MASTER_DATASET_2001_2026.csv   # Raw pipeline output
+│       ├── FINAL_MASTER_DATASET_CLEAN.csv        # After outlier treatment ★
 │       ├── FINAL_COMPACT_DATASET_2001_2026.csv
 │       └── SUMMARY_STATISTICS.csv
 ├── src/
 │   ├── __init__.py
-│   ├── data_loader.py                # BH0: Data pipeline (14 functions)
+│   ├── data_loader.py                # Data pipeline (14 functions)
+│   ├── outlier_treatment.py          # Outlier detection & rectification (7 issues)
+│   ├── eda.py                        # Exploratory Data Analysis (8 figures)
 │   ├── panel_models.py               # BH1: Two-Way FE + IV
 │   ├── did_causal_forest.py          # BH2: Staggered DiD + Causal Forest
 │   ├── lstm_forecaster.py            # BH3: LSTM multi-horizon forecasting
@@ -234,9 +252,14 @@ qm640_energy_analysis/
 │   └── regional_analysis.py          # BH5: Regional heterogeneity TWFE
 ├── notebooks/
 │   ├── Final_data_loading.ipynb
-│   ├── BH1.ipynb ... BH5.ipynb
+│   └── BH1.ipynb ... BH5.ipynb
 ├── outputs/
-│   ├── BH1/  BH2/  BH3/  BH4/  BH5/
+│   ├── EDA/   # 8 EDA figures + outlier log + summary statistics
+│   ├── BH1/   # Coefficient plots, robustness table
+│   ├── BH2/   # Event-study, CATE by state, trend plots
+│   ├── BH3/   # LSTM .keras models, metrics, predictions per horizon
+│   ├── BH4/   # SHAP plots, confusion matrix, feature importance
+│   └── BH5/   # Regional figures, interaction results
 ├── synopsis/
 │   └── synopsis_content.md           # This document
 ├── docs/
@@ -247,7 +270,61 @@ qm640_energy_analysis/
 
 ---
 
-## 4. Analytic Approach
+## 4. Exploratory Data Analysis
+
+### 4.1 Descriptive Statistics
+
+After outlier treatment, the clean panel (n = 15,652 state-months; 1,352 state-years) exhibits the following distributional properties for key variables:
+
+| Variable | Mean | SD | Min | Median | Max | Missing% |
+|----------|------|----|-----|--------|-----|---------|
+| CO₂ Intensity (tons/MWh) | 0.544 | 0.273 | 0.000 | 0.528 | 1.242 | 0.2% |
+| Fossil Intensity (%) | 64.5 | 23.9 | 0.0 | 66.5 | 100.0 | 0.2% |
+| Renewable Share (%) | 18.6 | 22.8 | 0.0 | 8.6 | 100.0 | 0.0% |
+| Nuclear Share (%) | 16.2 | 17.9 | 0.0 | 11.5 | 87.6 | 0.0% |
+| Avg Temperature (°F) | 53.0 | 17.0 | 3.0 | 53.9 | 88.4 | 20.3% |
+| GDP Index (base=100) | 119.1 | 19.9 | 84.1 | 113.4 | 213.8 | 17.9% |
+| Has RPS (binary) | 0.451 | 0.498 | 0 | 0 | 1 | 0.0% |
+
+### 4.2 Correlation Structure
+
+Pearson correlations between CO₂ intensity and key predictors (annual panel, n = 1,352 state-years):
+
+| Variable | r with CO₂ | Direction | Implication |
+|----------|-----------|-----------|-------------|
+| Fossil Intensity | +0.830 | Positive | Primary driver — fossil share dominates CO₂ |
+| Renewable Share | −0.587 | Negative | Substitution effect confirmed |
+| RPS_Target_Pct | −0.367 | Negative | Stringency matters |
+| Nuclear Share | −0.346 | Negative | Low-carbon nuclear substitutes for fossil |
+| Has_RPS | −0.319 | Negative | Policy signal — raw unadjusted gap |
+| GDP Index | −0.215 | Negative | Wealthier states invest more in clean energy |
+| Avg Temperature | +0.049 | Near-zero | Climate has minimal raw correlation |
+
+### 4.3 Raw Treatment Gap
+
+Unadjusted comparison of CO₂ intensity by RPS status (before causal adjustment):
+
+| Group | Mean CO₂ (tons/MWh) | n (state-years) |
+|-------|---------------------|-----------------|
+| RPS states | 0.446 | 612 |
+| No-RPS states | 0.619 | 740 |
+| **Raw gap** | **0.173** | — |
+
+This 0.173 tons/MWh raw gap is the unadjusted difference before controlling for confounders. The BH1 panel fixed-effects estimate (β = −0.00373/year) and BH2 causal forest ATT (−0.139 tons/MWh) represent causally identified estimates after removing selection bias.
+
+### 4.4 Generation Mix Trends
+
+The national generation mix shifted significantly over 2001–2026:
+- **Fossil share** declined from ~70% (2001) to ~57% (2022), driven by coal-to-gas switching and renewable buildout
+- **Renewable share** grew from ~9% (2001) to ~28% (2022), accelerating post-2010
+- **Nuclear share** remained stable at ~19%, declining slightly post-2012 (plant retirements)
+
+The West region leads renewable share (mean 32.5%) while the Midwest leads fossil intensity (mean 65.9%).
+
+---
+
+## 5. Analytic Approach
+
 
 ### 4.1 BH1 — Two-Way Fixed Effects with Instrumental Variables (Panel Models)
 
@@ -411,7 +488,7 @@ where RMSE_persistence uses the naive persistence forecast (ŷ_t = y_{t−1}).
 
 ---
 
-## 5. Recommendations and Business Application
+## 6. Recommendations and Business Application
 
 ### 5.1 For State Regulators
 
@@ -448,7 +525,7 @@ For a portfolio of 50 sites across multiple states, the NPV of locating in RPS-a
 
 ---
 
-## 6. Limitations and Future Research
+## 7. Limitations and Future Research
 
 **Limitation 1 — SUTVA Violations:** Cross-state electricity trading means treatment assignment is not independent; states importing power from renewable-heavy neighbors benefit without adopting RPS. Future research should instrument for grid interconnection flows.
 
@@ -460,7 +537,7 @@ For a portfolio of 50 sites across multiple states, the NPV of locating in RPS-a
 
 ---
 
-## 7. References
+## 8. References
 
 Abadie, A., Diamond, A., & Hainmueller, J. (2010). Synthetic control methods for comparative case studies: Estimating the effect of California's tobacco control program. *Journal of the American Statistical Association*, *105*(490), 493–505. https://doi.org/10.1198/jasa.2009.ap08746
 

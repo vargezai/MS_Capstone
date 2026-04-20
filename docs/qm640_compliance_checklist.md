@@ -128,10 +128,16 @@ qm640_energy_analysis/
 ├── .gitignore                         # Excludes raw data, model artifacts, venv
 ├── data/
 │   ├── raw/                           # Source files (gitignored — too large)
-│   └── processed/                     # Pipeline outputs (gitignored)
+│   └── processed/
+│       ├── FINAL_MASTER_DATASET_2001_2026.csv   # Raw pipeline output
+│       ├── FINAL_MASTER_DATASET_CLEAN.csv        # After outlier treatment ★
+│       ├── FINAL_COMPACT_DATASET_2001_2026.csv
+│       └── SUMMARY_STATISTICS.csv
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py                 # Data pipeline — 14 documented functions
+│   ├── outlier_treatment.py           # Outlier detection & rectification (7 issues)
+│   ├── eda.py                         # EDA — 8 figures, correlation matrix
 │   ├── panel_models.py                # BH1: 5 panel specifications + placebo
 │   ├── did_causal_forest.py           # BH2: Event-study DiD + Causal Forest
 │   ├── lstm_forecaster.py             # BH3: 2-layer LSTM, 3 forecast horizons
@@ -139,12 +145,9 @@ qm640_energy_analysis/
 │   └── regional_analysis.py           # BH5: Regional subgroup TWFE
 ├── notebooks/
 │   ├── Final_data_loading.ipynb       # Original working Colab notebook
-│   ├── BH1.ipynb                      # BH1 development notebook
-│   ├── BH2.ipynb                      # BH2 development notebook
-│   ├── BH3.ipynb                      # BH3 development notebook
-│   ├── BH4.ipynb                      # BH4 development notebook
-│   └── BH5.ipynb                      # BH5 development notebook
+│   ├── BH1.ipynb ... BH5.ipynb        # BH development notebooks
 ├── outputs/
+│   ├── EDA/                           # 8 EDA figures + outlier log + summary stats
 │   ├── BH1/                           # BH1 figures and result tables
 │   ├── BH2/                           # BH2 figures and result tables
 │   ├── BH3/                           # BH3 model files, metrics, predictions
@@ -156,9 +159,9 @@ qm640_energy_analysis/
     └── qm640_compliance_checklist.md  # This document
 ```
 
-**Reproducibility:** Any analyst can clone the repository, install requirements, copy raw data files to `data/raw/`, and run `run_pipeline()` + `run_bh1()` through `run_bh5()` to reproduce all results from scratch.
+**Reproducibility:** Any analyst can clone the repository, install requirements (`conda create -n qm640 python=3.11 && pip install -r requirements.txt`), copy raw data files to `data/raw/`, then run in sequence: `main()` → `run_outlier_treatment()` → `run_eda()` → `run_bh1()` through `run_bh5()`.
 
-**Code quality:** All `src/` modules use explicit function definitions, typed inputs, and save outputs deterministically to named subdirectories. No hardcoded local paths — `PROJECT_ROOT` is computed relative to the module location.
+**Code quality:** All `src/` modules use explicit function definitions and save outputs deterministically to named subdirectories. No hardcoded local paths — `PROJECT_ROOT` is computed relative to the module location. All BH modules read from `FINAL_MASTER_DATASET_CLEAN.csv` (outlier-treated).
 
 ---
 
