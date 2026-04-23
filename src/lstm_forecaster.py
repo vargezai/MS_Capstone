@@ -37,7 +37,7 @@ np.random.seed(42)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_CLEAN.csv"
+DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_FEATURES.csv"
 OUTPUT_DIR   = PROJECT_ROOT / "outputs" / "BH3"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -49,14 +49,24 @@ TEST_END  = 2022
 TARGET    = "CO2_Intensity_Combined"
 
 FEATURES = [
+    # original
     "CO2_Intensity_Combined",
     "Renewable_Share_Pct", "Fossil_Intensity",
     "Total_Generation_MWh", "Avg_Temp_F",
     "GDP_Growth_Rate_Annual", "Has_RPS",
     "Years_Since_RPS", "Nuclear_Share_Pct",
+    # engineered
+    "Clean_Share",
+    "RPS_Maturity",
+    "Fossil_to_Renewable_Ratio",
+    "HDD",
+    "CDD",
+    "Renewable_Momentum",
+    "Seasonal_Sin",
+    "Seasonal_Cos",
 ]
-TGT_IDX = FEATURES.index(TARGET)
-N_FEATS = len(FEATURES)
+TGT_IDX = FEATURES.index(TARGET)   # auto-computed from list
+N_FEATS = len(FEATURES)             # auto-computed from list
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

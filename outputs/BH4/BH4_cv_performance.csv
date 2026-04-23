@@ -1,5 +1,5 @@
 Model,CV_AUC_mean,CV_AUC_std,CV_Acc_mean,CV_Acc_std
-XGBoost (primary),0.9554,0.0176,0.8995,0.0192
-LightGBM (secondary),0.9606,0.0164,0.9093,0.0186
-Random Forest (base),0.9408,0.0179,0.8897,0.0037
-Stacking Ensemble,0.9549,0.0134,0.9007,0.0118
+XGBoost (primary),0.9678,0.0163,0.9154,0.0207
+LightGBM (secondary),0.9721,0.0172,0.9228,0.0235
+Random Forest (base),0.96,0.0113,0.8885,0.006
+Stacking Ensemble,0.9631,0.0191,0.9142,0.0133

@@ -28,7 +28,7 @@ np.random.seed(42)
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_CLEAN.csv"
+DATA_PATH    = PROJECT_ROOT / "data" / "processed" / "FINAL_MASTER_DATASET_FEATURES.csv"
 OUTPUT_DIR   = PROJECT_ROOT / "outputs" / "BH4"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -36,14 +36,22 @@ CORE_START, CORE_END = 2005, 2022
 RANDOM_STATE = 42
 
 FEATURES = [
-    "Renewable_Share_Pct",
+    # original
     "Fossil_Intensity",
+    "Renewable_Share_Pct",
     "Has_RPS",
-    "Years_Since_RPS",
+    "RPS_Target_Pct",
+    "Avg_Temp_F",
     "GDP_Growth_Rate_Annual",
     "Temp_Extreme",
     "Nuclear_Share_Pct",
-    "Avg_Temp_F",
+    # engineered
+    "Clean_Share",
+    "RPS_Maturity",
+    "Fossil_to_Renewable_Ratio",
+    "HDD",
+    "CDD",
+    "CO2_YoY_Change",
 ]
 
 
@@ -57,16 +65,24 @@ def run_bh4():
     df_core = df[(df["YEAR"] >= CORE_START) & (df["YEAR"] <= CORE_END)].copy()
 
     agg_map = {
-        "CO2_Intensity_Combined" : "mean",
-        "Renewable_Share_Pct"    : "mean",
-        "Fossil_Intensity"       : "mean",
-        "Has_RPS"                : "max",
-        "Years_Since_RPS"        : "max",
-        "GDP_Growth_Rate_Annual" : "mean",
-        "Temp_Extreme"           : "mean",
-        "Total_Generation_MWh"   : "sum",
-        "Nuclear_Share_Pct"      : "mean",
-        "Avg_Temp_F"             : "mean",
+        "CO2_Intensity_Combined"   : "mean",
+        "Renewable_Share_Pct"      : "mean",
+        "Fossil_Intensity"         : "mean",
+        "Has_RPS"                  : "max",
+        "Years_Since_RPS"          : "max",
+        "RPS_Target_Pct"           : "max",
+        "GDP_Growth_Rate_Annual"   : "mean",
+        "Temp_Extreme"             : "mean",
+        "Total_Generation_MWh"     : "sum",
+        "Nuclear_Share_Pct"        : "mean",
+        "Avg_Temp_F"               : "mean",
+        # engineered features
+        "Clean_Share"              : "mean",
+        "RPS_Maturity"             : "mean",
+        "Fossil_to_Renewable_Ratio": "mean",
+        "HDD"                      : "mean",
+        "CDD"                      : "mean",
+        "CO2_YoY_Change"           : "mean",
     }
     df_annual = df_core.groupby(["STATE", "YEAR"]).agg(agg_map).reset_index()
 
