@@ -49,7 +49,11 @@ run_outlier_treatment() # → data/processed/FINAL_MASTER_DATASET_CLEAN.csv
 from src.eda import run_eda
 run_eda()               # → outputs/EDA/ (8 figures + 2 CSVs)
 
-# Step 4 — Run business hypotheses (all use clean dataset)
+# Step 4 — Feature engineering (BH3 and BH4 only)
+from src.feature_engineering import run_feature_engineering
+run_feature_engineering()  # → data/processed/FINAL_MASTER_DATASET_FEATURES.csv
+
+# Step 5 — Run business hypotheses
 from src.panel_models import run_bh1
 from src.did_causal_forest import run_bh2
 from src.lstm_forecaster import run_bh3
@@ -72,12 +76,14 @@ qm640_energy_analysis/
 │   └── processed/
 │       ├── FINAL_MASTER_DATASET_2001_2026.csv   # Raw pipeline output
 │       ├── FINAL_MASTER_DATASET_CLEAN.csv        # After outlier treatment
+│       ├── FINAL_MASTER_DATASET_FEATURES.csv     # After feature engineering ★
 │       ├── FINAL_COMPACT_DATASET_2001_2026.csv
 │       └── SUMMARY_STATISTICS.csv
 ├── src/
 │   ├── data_loader.py         # Data pipeline (14 functions)
 │   ├── outlier_treatment.py   # Outlier detection & rectification (7 issues)
 │   ├── eda.py                 # Exploratory Data Analysis (8 plots)
+│   ├── feature_engineering.py # 9 engineered features for BH3 & BH4
 │   ├── panel_models.py        # BH1: TWFE + IV
 │   ├── did_causal_forest.py   # BH2: DiD + Causal Forest
 │   ├── lstm_forecaster.py     # BH3: LSTM forecasting
@@ -125,8 +131,8 @@ qm640_energy_analysis/
 |----|-----|-----------------|----------|
 | BH1 | β_RPS = 0 | RPS reduces CO₂ intensity (Spec 3) | Reject H₀ (β = −0.00373, p = 0.016) |
 | BH2 | ATT = 0 | Causal effect confirmed, parallel trends hold | Reject H₀ (ATT = −0.139, p < 0.0001) |
-| BH3 | SS ≤ 0 | LSTM cannot beat persistence (near-unit-root) | Fail to reject H₀ (SS₁ = −2.52) |
-| BH4 | AUC = 0.50 | Fossil_Intensity is top predictor (38.9% SHAP) | Reject H₀ (CV AUC = 0.956) |
+| BH3 | SS ≤ 0 | LSTM cannot beat persistence (near-unit-root); 17 features, R²=0.98 | Fail to reject H₀ (SS₁ = −2.508) |
+| BH4 | AUC = 0.50 | RPS_Target_Pct is top predictor (17.4% SHAP); 14 features | Reject H₀ (CV AUC = 0.9678) |
 | BH5 | Homogeneous effect | West β = −0.008 vs Northeast β = +0.001 | Reject H₀ (RPS×West p < 0.001) |
 
 ## Dependencies

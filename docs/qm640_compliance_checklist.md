@@ -61,7 +61,7 @@ All raw files are stored locally at `data/raw/` and reproducible from the above 
 | BH1 | Two-Way Fixed Effects | Green's Rule (50 + 8k, k=7) | 106 | 1,122 | **10.6×** |
 | BH2 | Staggered DiD + Causal Forest | DiD panel power formula | 75 (medium f²) | 1,122 | **14.96×** |
 | BH3 | LSTM | Sequence count ≥ 1,000 | 1,000 sequences | 7,701 (1-mo) | **7.7×** |
-| BH4 | XGBoost Classification | EPV ≥ 10, k=8 features | 80 events | 374 events | **EPV = 46.8** |
+| BH4 | XGBoost Classification | EPV ≥ 10, k=14 features | 140 events | 289 events | **EPV = 20.6** |
 | BH5 | Regional Subgroup TWFE | Green's Rule per region (smallest: Northeast, ~11 states × 22 years = 242) | 106 | 242–528 | **2.3–5×** |
 
 Full derivations are in `synopsis/synopsis_content.md` Appendix A.
@@ -107,9 +107,9 @@ Full derivations are in `synopsis/synopsis_content.md` Appendix A.
 
 **Recommendation 3 (Regulators — Timeline):** Near-unit-root CO₂ dynamics (BH3 SS < 0) imply 5–10 year RPS compliance schedules outperform annual ratchets.
 
-**Recommendation 4 (Utilities):** States with Fossil_Intensity > 60% face steep barriers to decarbonizer status (top SHAP predictor at 43.5% importance). Fuel-switching is the highest-leverage capital decision. Estimated 0.18 probability-unit gain per 10-point fossil intensity reduction.
+**Recommendation 4 (Utilities):** RPS_Target_Pct is the top SHAP predictor (17.4%) after feature engineering; Fossil_Intensity ranks 2nd (16.4%). States with aggressive RPS targets are the most predictive of decarbonizer status; Fossil_Intensity > 60% remains a steep barrier.
 
-**Recommendation 5 (Utilities — Risk Scoring):** Stacking Ensemble (AUC = 0.961) enables state-level REC procurement risk scoring. Non-decarbonizer states will face higher future compliance costs; use model scores to time REC purchases forward.
+**Recommendation 5 (Utilities — Risk Scoring):** XGBoost (CV AUC = 0.9678) and Stacking Ensemble (CV AUC = 0.9631) enable state-level REC procurement risk scoring. Non-decarbonizer states will face higher future compliance costs; use model scores to time REC purchases forward.
 
 **Recommendation 6 (Corporate Sustainability):** ROI of locating in RPS-adopting vs. non-adopting states: $102,000/year avoided carbon cost per 50,000 MWh site; $39.4M NPV for 50-site portfolios over 10 years (@ $51/ton Social Cost of Carbon, 5% discount rate).
 
@@ -131,6 +131,7 @@ qm640_energy_analysis/
 │   └── processed/
 │       ├── FINAL_MASTER_DATASET_2001_2026.csv   # Raw pipeline output
 │       ├── FINAL_MASTER_DATASET_CLEAN.csv        # After outlier treatment ★
+│       ├── FINAL_MASTER_DATASET_FEATURES.csv     # After feature engineering ★
 │       ├── FINAL_COMPACT_DATASET_2001_2026.csv
 │       └── SUMMARY_STATISTICS.csv
 ├── src/
@@ -138,10 +139,11 @@ qm640_energy_analysis/
 │   ├── data_loader.py                 # Data pipeline — 14 documented functions
 │   ├── outlier_treatment.py           # Outlier detection & rectification (7 issues)
 │   ├── eda.py                         # EDA — 8 figures, correlation matrix
+│   ├── feature_engineering.py         # 9 engineered features for BH3 & BH4
 │   ├── panel_models.py                # BH1: 5 panel specifications + placebo
 │   ├── did_causal_forest.py           # BH2: Event-study DiD + Causal Forest
-│   ├── lstm_forecaster.py             # BH3: 2-layer LSTM, 3 forecast horizons
-│   ├── xgboost_classifier.py          # BH4: XGBoost + SHAP + ensemble
+│   ├── lstm_forecaster.py             # BH3: 2-layer LSTM, 17 features, 3 horizons
+│   ├── xgboost_classifier.py          # BH4: XGBoost + SHAP + ensemble, 14 features
 │   └── regional_analysis.py           # BH5: Regional subgroup TWFE
 ├── notebooks/
 │   ├── Final_data_loading.ipynb       # Original working Colab notebook

@@ -82,7 +82,7 @@ This project addresses five research questions (RQ), each corresponding to a Bus
 >
 > **H₁ (BH3):** The LSTM model achieves positive skill scores (SS > 0) at one or more horizons, indicating it captures dynamics beyond lag-1 persistence.
 >
-> *Decision rule:* Reject H₀ if skill score SS > 0 for at least one horizon (1, 3, or 6 months). **Result: Fail to reject H₀** (SS₁ = −0.043, SS₃ = −0.112, SS₆ = −0.198 — all negative, confirming near-unit-root CO₂ dynamics dominate short-run variation).
+> *Decision rule:* Reject H₀ if skill score SS > 0 for at least one horizon (1, 3, or 6 months). **Result: Fail to reject H₀** (SS₁ = −2.508, SS₃ = −1.347, SS₆ = −0.737 — all negative, confirming near-unit-root CO₂ dynamics dominate short-run variation).
 
 ---
 
@@ -92,7 +92,7 @@ This project addresses five research questions (RQ), each corresponding to a Bus
 >
 > **H₁ (BH4):** The XGBoost classifier achieves AUC-ROC significantly above 0.50, with identifiable features carrying consistent SHAP importance across states.
 >
-> *Decision rule:* Reject H₀ if test AUC > 0.70 (conventionally acceptable discrimination) and at least one feature has non-zero mean |SHAP| across all test observations. **Result: Reject H₀** (XGBoost AUC = 0.948; Fossil_Intensity mean |SHAP| = 0.435, ranked #1).
+> *Decision rule:* Reject H₀ if test AUC > 0.70 (conventionally acceptable discrimination) and at least one feature has non-zero mean |SHAP| across all test observations. **Result: Reject H₀** (XGBoost CV AUC = 0.9678; RPS_Target_Pct mean |SHAP| = 1.373, ranked #1 after feature engineering expansion to 14 features).
 
 ---
 
@@ -143,11 +143,11 @@ With 51 states: **Total training sequences = 7,701** (1-month horizon), **7,191*
 
 #### BH4 — XGBoost Classification: Events-Per-Variable (EPV) Rule
 
-The EPV rule specifies that reliable classification requires at minimum 10 events per predictor variable (Harrell, 2015). With k = 8 features:
+The EPV rule specifies that reliable classification requires at minimum 10 events per predictor variable (Harrell, 2015). With k = 14 features (8 original + 6 engineered):
 
-> Minimum events = 10 × 8 = 80
+> Minimum events = 10 × 14 = 140
 
-Our dataset classifies 1,122 state-year observations with approximately 374 positive events (bottom tercile by construction, ~33.3%). **EPV = 374/8 = 46.8**, well above the threshold of 10.
+Our dataset classifies 816 state-year observations (after dropping rows with missing engineered features) with 289 positive events (bottom tercile, ~35.4%). **EPV = 289/14 = 20.6**, well above the threshold of 10.
 
 ---
 
@@ -172,6 +172,24 @@ All data are drawn exclusively from U.S. government agencies and publicly access
 *Source:* `FINAL_MASTER_DATASET_2001_2026.csv` → cleaned by `src/outlier_treatment.py`  
 Unit of observation: State × Month (for LSTM); State × Year (for panel regressions)  
 Dimensions: 51 states × 22 years × 12 months = 13,464 monthly records (panel models use annual aggregates: 1,122 observations)
+
+**Feature-Engineered Dataset:** `FINAL_MASTER_DATASET_FEATURES.csv` (15,652 rows × 51 cols)  
+*Source:* `FINAL_MASTER_DATASET_CLEAN.csv` → enriched by `src/feature_engineering.py`  
+Used exclusively by BH3 (LSTM) and BH4 (XGBoost). BH1, BH2, and BH5 use the clean dataset directly.
+
+Nine derived features added:
+
+| Feature | Formula | Used in |
+|---------|---------|---------|
+| `Clean_Share` | Renewable_Share_Pct + Nuclear_Share_Pct, clipped [0,100] | BH3, BH4 |
+| `RPS_Maturity` | log(1 + Years_Since_RPS) | BH3, BH4 |
+| `Fossil_to_Renewable_Ratio` | Fossil_Intensity / (Renewable_Share_Pct + 1) | BH3, BH4 |
+| `HDD` | max(0, 65 − Avg_Temp_F) | BH3, BH4 |
+| `CDD` | max(0, Avg_Temp_F − 65) | BH3, BH4 |
+| `CO2_YoY_Change` | Annual % change in CO₂ intensity per state | BH4 only |
+| `Renewable_Momentum` | 3-month rolling mean of ΔRenewable_Share per state | BH3 only |
+| `Seasonal_Sin` | sin(2π × Month / 12) | BH3 only |
+| `Seasonal_Cos` | cos(2π × Month / 12) | BH3 only |
 
 | Variable | Type | Units | Source | Description |
 |----------|------|-------|---------|-------------|
@@ -221,7 +239,9 @@ The data loading pipeline (`src/data_loader.py`) executes 14 sequential steps:
 | `CO2 > 1.1` (DC 2009, KY, OH, WV) | 50 | Flagged only — legitimate 100% fossil grids |
 | High renewable share (WA, ID, OR, SD…) | 1,652 | No change — legitimate hydro-heavy states |
 
-Clean dataset: `FINAL_MASTER_DATASET_CLEAN.csv` (15,652 rows, 42 columns including `CO2_Outlier_Flag`). All five BH analyses use this clean dataset.
+Clean dataset: `FINAL_MASTER_DATASET_CLEAN.csv` (15,652 rows, 42 columns including `CO2_Outlier_Flag`). BH1, BH2, and BH5 use this clean dataset directly.
+
+**Step 15 — Feature Engineering** (`src/feature_engineering.py`): Nine derived features are added to enrich the clean dataset for BH3 and BH4 only. The rationale for targeted feature engineering (rather than applying to all BHs) is that causal inference models (BH1/BH2/BH5) must avoid post-treatment contamination, while LSTM and XGBoost benefit from higher-dimensional temporal and domain representations. Output: `FINAL_MASTER_DATASET_FEATURES.csv` (15,652 rows, 51 columns).
 
 ### 3.4 Repository Structure
 
@@ -238,6 +258,7 @@ qm640_energy_analysis/
 │   └── processed/                         # Pipeline outputs
 │       ├── FINAL_MASTER_DATASET_2001_2026.csv   # Raw pipeline output
 │       ├── FINAL_MASTER_DATASET_CLEAN.csv        # After outlier treatment ★
+│       ├── FINAL_MASTER_DATASET_FEATURES.csv     # After feature engineering ★
 │       ├── FINAL_COMPACT_DATASET_2001_2026.csv
 │       └── SUMMARY_STATISTICS.csv
 ├── src/
@@ -245,6 +266,7 @@ qm640_energy_analysis/
 │   ├── data_loader.py                # Data pipeline (14 functions)
 │   ├── outlier_treatment.py          # Outlier detection & rectification (7 issues)
 │   ├── eda.py                        # Exploratory Data Analysis (8 figures)
+│   ├── feature_engineering.py        # 9 engineered features for BH3 & BH4
 │   ├── panel_models.py               # BH1: Two-Way FE + IV
 │   ├── did_causal_forest.py          # BH2: Staggered DiD + Causal Forest
 │   ├── lstm_forecaster.py            # BH3: LSTM multi-horizon forecasting
@@ -386,14 +408,14 @@ where X_i includes Log_GDP, Fossil_Intensity, Renewable_Share, Avg_Temp. CATE es
 **Architecture:**
 
 ```
-Input: (LOOKBACK=12, n_features=9)
+Input: (LOOKBACK=12, n_features=17)
   → LSTM(64, return_sequences=True) → Dropout(0.2)
   → LSTM(32) → Dropout(0.2)
   → Dense(16, activation='relu')
   → Dense(1)
 ```
 
-**Features (9 variables):** CO2_Intensity_Combined (target at lag), Fossil_Intensity, Renewable_Share, Has_RPS, Avg_Temp, Temp_Extreme, Log_GDP, Total_Generation, RPS_Pct
+**Features (17 variables):** CO2_Intensity_Combined (target at lag), Fossil_Intensity, Renewable_Share_Pct, Has_RPS, Avg_Temp_F, GDP_Growth_Rate_Annual, Years_Since_RPS, Nuclear_Share_Pct, Total_Generation_MWh, plus 8 engineered features: Clean_Share, RPS_Maturity, Fossil_to_Renewable_Ratio, HDD, CDD, Renewable_Momentum, Seasonal_Sin, Seasonal_Cos
 
 **Training Protocol:**
 
@@ -413,7 +435,7 @@ Input: (LOOKBACK=12, n_features=9)
 
 where RMSE_persistence uses the naive persistence forecast (ŷ_t = y_{t−1}).
 
-**Key Finding:** Negative skill scores at all three horizons (SS₁ = −0.043, SS₃ = −0.112, SS₆ = −0.198) reveal that CO₂ intensity evolves as a near-unit-root process (mean lag-1 autocorrelation ≈ 0.99 across states). The persistence benchmark is extremely difficult to beat. However, R² > 0.97 for level prediction confirms LSTM correctly ranks states — the model has strong cross-sectional signal but weak temporal signal. This finding itself is academically and practically valuable: it reveals that short-run forecasting of CO₂ intensity provides minimal uplift over naive persistence, while long-run structural changes (RPS adoption, fuel mix) matter more.
+**Key Finding:** Negative skill scores at all three horizons (SS₁ = −2.508, SS₃ = −1.347, SS₆ = −0.737) reveal that CO₂ intensity evolves as a near-unit-root process (mean lag-1 autocorrelation ≈ 0.846 across states). The persistence benchmark is extremely difficult to beat even with 17 features. However, R² ≥ 0.97 for level prediction confirms LSTM correctly ranks states — the model has strong cross-sectional signal but weak temporal signal. This finding itself is academically and practically valuable: it reveals that short-run forecasting of CO₂ intensity provides minimal uplift over naive persistence, while long-run structural changes (RPS adoption, fuel mix) matter more.
 
 **Implementation:** `src/lstm_forecaster.py`, `tensorflow.keras`, `sklearn.preprocessing.MinMaxScaler`.
 
@@ -421,7 +443,7 @@ where RMSE_persistence uses the naive persistence forecast (ŷ_t = y_{t−1}).
 
 **Target Variable:** `High_Decarbonizer` = 1 if state's CO₂ intensity is in the bottom tercile for that year (33.3% event rate).
 
-**Features (8 variables):** Fossil_Intensity, Renewable_Share, Has_RPS, RPS_Pct, Avg_Temp, Log_GDP, Temp_Extreme, Total_Generation
+**Features (14 variables):** Fossil_Intensity, Renewable_Share_Pct, Has_RPS, RPS_Target_Pct, Avg_Temp_F, GDP_Growth_Rate_Annual, Temp_Extreme, Nuclear_Share_Pct, plus 6 engineered features: Clean_Share, RPS_Maturity, Fossil_to_Renewable_Ratio, HDD, CDD, CO2_YoY_Change
 
 **Model Pipeline:**
 
@@ -438,27 +460,34 @@ where RMSE_persistence uses the naive persistence forecast (ŷ_t = y_{t−1}).
 
 **Key Results:**
 
-| Model | CV AUC | Test AUC | Test F1 |
-|-------|--------|----------|---------|
-| XGBoost (tuned) | 0.9562 | 0.948 | 0.913 |
-| LightGBM | — | 0.941 | 0.908 |
-| Random Forest | — | 0.935 | 0.901 |
-| Stacking Ensemble | — | **0.961** | **0.924** |
+| Model | CV AUC | Full AUC | CV Accuracy |
+|-------|--------|----------|-------------|
+| XGBoost (tuned) | **0.9678** | 0.9998 | 0.9154 |
+| LightGBM | 0.9721 | 1.0000 | 0.9228 |
+| Random Forest | 0.9600 | 0.9819 | 0.8885 |
+| Stacking Ensemble | 0.9631 | — | — |
 
-**Best XGBoost Parameters:** `{learning_rate: 0.1, max_depth: 4, n_estimators: 200}`
+**Best XGBoost Parameters:** `{learning_rate: 0.1, max_depth: 4, n_estimators: 300}`  
+**Modelling sample:** 816 state-years (after dropping rows missing engineered features); 289 positive events (35.4%)
 
-**SHAP Feature Importance (XGBoost):**
+**SHAP Feature Importance (Tuned XGBoost, 14 features):**
 
-| Rank | Feature | Mean |SHAP| | Business Interpretation |
-|------|---------|--------------|------------------------|
-| 1 | Fossil_Intensity | 0.435 | High fossil share strongly predicts non-decarbonizer status |
-| 2 | Renewable_Share | 0.218 | Renewable capacity is the primary positive predictor |
-| 3 | Has_RPS | 0.142 | RPS presence is third most important |
-| 4 | Avg_Temp | 0.089 | Climate affects HVAC demand and renewable resource |
-| 5 | Log_GDP | 0.071 | Wealthier states invest more in clean energy |
-| 6 | RPS_Pct | 0.028 | Stringency matters beyond mere RPS presence |
-| 7 | Total_Generation | 0.017 | Scale effects moderate decarbonization rate |
-| 8 | Temp_Extreme | 0.012 | Extreme weather temporarily elevates fossil backup |
+| Rank | Feature | Mean |SHAP| | % | Business Interpretation |
+|------|---------|--------------|-----|------------------------|
+| 1 | RPS_Target_Pct | 1.3732 | 17.4% | RPS stringency is the strongest policy lever |
+| 2 | Fossil_Intensity | 1.2897 | 16.4% | High fossil share strongly predicts non-decarbonizer |
+| 3 | Clean_Share *(eng.)* | 1.0279 | 13.0% | Combined low-carbon share captures nuclear + renewable |
+| 4 | CDD *(eng.)* | 0.8007 | 10.2% | Cooling demand shapes grid mix during peak seasons |
+| 5 | Renewable_Share_Pct | 0.7848 | 10.0% | Direct renewable capacity effect |
+| 6 | HDD *(eng.)* | 0.5516 | 7.0% | Heating demand affects winter fossil dispatch |
+| 7 | Nuclear_Share_Pct | 0.4966 | 6.3% | Nuclear baseload reduces CO₂ independently of RPS |
+| 8 | CO2_YoY_Change *(eng.)* | 0.3961 | 5.0% | Trajectory matters: declining CO₂ predicts future status |
+| 9 | Fossil_to_Renewable_Ratio *(eng.)* | 0.2814 | 3.6% | Structural transition progress |
+| 10 | Avg_Temp_F | 0.2689 | 3.4% | Climate zone affects baseline demand |
+| 11 | RPS_Maturity *(eng.)* | 0.2319 | 2.9% | Longer-running RPS has compounding effects |
+| 12 | GDP_Growth_Rate_Annual | 0.1901 | 2.4% | Economic conditions affect investment capacity |
+| 13 | Temp_Extreme | 0.1345 | 1.7% | Extreme weather temporarily elevates fossil backup |
+| 14 | Has_RPS | 0.0584 | 0.7% | Binary presence subsumed by RPS_Target_Pct |
 
 **Implementation:** `src/xgboost_classifier.py`, `xgboost`, `shap.TreeExplainer`, `sklearn.ensemble.StackingClassifier`.
 
@@ -502,11 +531,11 @@ where RMSE_persistence uses the naive persistence forecast (ŷ_t = y_{t−1}).
 
 ### 5.2 For Electric Utilities
 
-**Finding:** Fossil_Intensity is the #1 predictor of decarbonizer status (43.5% SHAP importance), with a nonlinear SHAP dependence: states above 60% fossil intensity face dramatically lower probability of top-tier decarbonizer status.
+**Finding:** RPS_Target_Pct is the #1 predictor of decarbonizer status (17.4% SHAP), followed closely by Fossil_Intensity (16.4%) and the engineered Clean_Share (13.0%). This ranking — policy stringency ahead of fossil intensity — emerges after feature engineering and reveals that regulatory ambition is a more discriminating predictor than current grid composition.
 
-**Recommendation 4:** Utilities with fossil intensity > 60% should prioritize fuel switching (coal → natural gas → renewables) as the highest-leverage capital allocation decision. A 10 percentage-point reduction in fossil intensity increases decarbonizer probability by approximately 0.18 probability units (from SHAP dependence plot).
+**Recommendation 4:** Utilities and regulators should monitor RPS target stringency as the single most predictive indicator of decarbonizer trajectories. States with aggressive targets (RPS_Target_Pct > 30%) are far more likely to enter the top-decarbonizer tier. Fuel switching remains the second-highest-leverage lever: states with Fossil_Intensity > 60% face steep barriers to decarbonizer status.
 
-**Recommendation 5:** The Stacking Ensemble (AUC = 0.961) provides utility-level risk scoring for REC procurement decisions: states predicted as non-decarbonizers are likely to face higher future REC prices and compliance costs.
+**Recommendation 5:** The XGBoost model (CV AUC = 0.9678) and Stacking Ensemble (CV AUC = 0.9631) enable state-level REC procurement risk scoring: states predicted as non-decarbonizers face higher future compliance costs; use model scores to time REC purchases forward.
 
 ### 5.3 For Corporate Sustainability Officers
 
@@ -630,9 +659,9 @@ All exceed the 1,000-sequence practical minimum (Brownlee, 2018).
 
 Peduzzi et al. (1996) recommend EPV ≥ 10 for stable logistic coefficient estimation; this heuristic extends to tree-based classifiers for feature importance stability.
 
-> Events = 1,122 × 0.333 = **374** (bottom tercile by construction)  
-> EPV = 374 / 8 = **46.8** (4.68× the minimum EPV = 10)  
-> Non-events = 748, making the minority class ratio 1:2 — well within acceptable imbalance bounds
+> Events = 289 positive (35.4% of 816 modelling observations after feature engineering)  
+> EPV = 289 / 14 = **20.6** (2.06× the minimum EPV = 10)  
+> Non-events = 527, making the minority class ratio ~1:1.8 — well within acceptable imbalance bounds
 
 ---
 
@@ -658,11 +687,13 @@ Zero of two pre-treatment periods significant: parallel trends assumption **not 
 
 ### B.3 BH3 Forecast Performance by Horizon
 
-| Horizon | RMSE | MAPE (%) | Skill Score | R² (levels) |
-|---------|------|----------|-------------|-------------|
-| 1-month | 0.042 | 8.3 | −0.043 | 0.971 |
-| 3-month | 0.058 | 11.7 | −0.112 | 0.961 |
-| 6-month | 0.079 | 15.4 | −0.198 | 0.948 |
+| Horizon | RMSE | Naive RMSE | Skill Score | R² (levels) | Best Epoch |
+|---------|------|------------|-------------|-------------|------------|
+| 1-month | 0.02994 | 0.00853 | −2.508 | 0.9806 | 10 |
+| 3-month | 0.03469 | 0.01478 | −1.347 | 0.9739 | 6 |
+| 6-month | 0.03631 | 0.02090 | −0.737 | 0.9714 | 32 |
+
+*17 features (9 original + 8 engineered). Mean lag-1 autocorrelation across 48 states: 0.8463.*
 
 ### B.4 BH4 Confusion Matrix (Test Set, XGBoost)
 
