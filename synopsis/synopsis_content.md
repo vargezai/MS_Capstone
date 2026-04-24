@@ -2,10 +2,10 @@
 
 **QM 640: Business Analytics Capstone Project**
 
-**Submitted by:** [Student Name]  
+**Submitted by:** Manoj Varghese
 **Course:** QM 640 — Advanced Business Analytics  
-**Institution:** [University Name]  
-**Instructor:** [Instructor Name]  
+**Institution:** Walsh College 
+**Instructor:** Dr Javad Katibai
 **Date:** April 18, 2026  
 
 ---
