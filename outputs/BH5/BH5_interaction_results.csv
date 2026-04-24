@@ -1,0 +1,6 @@
+Variable,Beta,Std_Error,P_value
+Has_RPS,-0.025006,0.012343,0.0431
+RPS_South,-0.058505,0.005898,0.0
+RPS_Midwest,-0.004942,0.025887,0.8486
+RPS_West,0.126668,0.026339,0.0
+Renewable_Share_Pct,-0.003591,0.002544,0.1585
