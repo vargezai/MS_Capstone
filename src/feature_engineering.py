@@ -39,7 +39,7 @@ def run_feature_engineering():
     df["Clean_Share"] = df["Renewable_Share_Pct"].fillna(0) + df["Nuclear_Share_Pct"].fillna(0)
     df["Clean_Share"] = df["Clean_Share"].clip(0, 100)
     log.append({"Feature": "Clean_Share", "Formula": "Renewable + Nuclear share (%)",
-                "Used in": "BH3, BH4, BH1/2/5 (control)"})
+                "Used in": "BH3, BH4"})
     print(f"   mean={df['Clean_Share'].mean():.1f}%  "
           f"min={df['Clean_Share'].min():.1f}%  max={df['Clean_Share'].max():.1f}%")
 
@@ -69,7 +69,7 @@ def run_feature_engineering():
     df["HDD"] = np.maximum(0, HDD_BASE - df["Avg_Temp_F"])
     df["CDD"] = np.maximum(0, df["Avg_Temp_F"] - CDD_BASE)
     log.append({"Feature": "HDD / CDD", "Formula": "max(0, 65−T) / max(0, T−65)",
-                "Used in": "BH3, BH4, BH1/2/5 (control)"})
+                "Used in": "BH3, BH4"})
     print(f"   HDD: mean={df['HDD'].mean():.1f}  max={df['HDD'].max():.1f}")
     print(f"   CDD: mean={df['CDD'].mean():.1f}  max={df['CDD'].max():.1f}")
 
