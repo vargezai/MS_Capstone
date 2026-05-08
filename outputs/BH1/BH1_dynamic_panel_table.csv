@@ -1,0 +1,4 @@
+Specification,Beta,Std_Error,Z_stat,P_value,N_obs,N_groups,N_instruments,Hansen_chi2_p,AR1_p,AR2_p
+(A) 1-step Diff-GMM,-0.005552,0.001918,-2.8952,0.0038,765,51,46,0.2539,0.0017,0.0346
+(B) 2-step Diff-GMM,-0.005476,0.001785,-3.0669,0.0022,765,51,46,0.2539,0.0049,0.046
+(C) 2-step Sys-GMM,-0.000554,0.000215,-2.5806,0.0099,765,51,62,0.7246,0.0022,0.0451

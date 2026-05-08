@@ -1,0 +1,4 @@
+Horizon,RMSE_baseline,RMSE_tuned,R2_baseline,R2_tuned,Skill_baseline,Skill_tuned,Best_units_1,Best_units_2,Best_dropout,Best_lr
+1,0.02994,0.03212,0.9806,0.9776,-2.5082,-2.7634,128,32,0.1,0.001
+3,0.03469,0.03407,0.9739,0.9748,-1.3466,-1.305,128,32,0.1,0.001
+6,0.03631,0.03649,0.9714,0.9711,-0.7369,-0.7455,128,32,0.1,0.001

@@ -1,0 +1,5 @@
+Specification,Sample,Beta,Std_Error,T_stat,P_value,CI_Lower,CI_Upper,N_obs
+(1) TWFE Annual,Full,-0.003613,0.002541,-1.4223,0.1553,-0.0086,0.001374,867
+(1) TWFE Annual,Excl. Outliers,-0.003209,0.002318,-1.3843,0.1666,-0.00776,0.001341,865
+(3) State Trends ★,Full,-0.003701,0.001546,-2.394,0.0169,-0.006736,-0.000666,867
+(3) State Trends ★,Excl. Outliers,-0.003474,0.001437,-2.417,0.0159,-0.006295,-0.000652,865
