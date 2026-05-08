@@ -60,12 +60,14 @@ from src.lstm_forecaster import run_bh3
 from src.xgboost_classifier import run_bh4
 from src.regional_analysis import run_bh5
 
-run_bh1()   # outputs/BH1/
+run_bh1()   # outputs/BH1/ — includes sensitivity analysis + Arellano-Bond GMM
 run_bh2()   # outputs/BH2/
-run_bh3()   # outputs/BH3/
-run_bh4()   # outputs/BH4/
+run_bh3()   # outputs/BH3/ — includes Keras Tuner hyperparameter optimization
+run_bh4()   # outputs/BH4/ — includes SHAP interaction heatmap
 run_bh5()   # outputs/BH5/
 ```
+
+Each `run_bh*()` function is self-contained: it loads the processed data, runs the full analysis including robustness checks, and writes all outputs to the corresponding subfolder.
 
 ## Project Structure
 
@@ -84,21 +86,23 @@ qm640_energy_analysis/
 │   ├── outlier_treatment.py   # Outlier detection & rectification (7 issues)
 │   ├── eda.py                 # Exploratory Data Analysis (8 plots)
 │   ├── feature_engineering.py # 9 engineered features for BH3 & BH4
-│   ├── panel_models.py        # BH1: TWFE + IV
+│   ├── panel_models.py        # BH1: TWFE + IV + sensitivity + Arellano-Bond GMM
 │   ├── did_causal_forest.py   # BH2: DiD + Causal Forest
-│   ├── lstm_forecaster.py     # BH3: LSTM forecasting
-│   ├── xgboost_classifier.py  # BH4: XGBoost + SHAP
+│   ├── lstm_forecaster.py     # BH3: LSTM forecasting + Keras Tuner optimization
+│   ├── xgboost_classifier.py  # BH4: XGBoost + SHAP + interaction analysis
 │   └── regional_analysis.py   # BH5: Regional TWFE
 ├── outputs/
 │   ├── EDA/   # 8 EDA figures + outlier log
-│   ├── BH1/   # Coefficient plots, results table
+│   ├── BH1/   # Coefficient plots, results table, sensitivity table, GMM table
 │   ├── BH2/   # Event-study, CATE plots
-│   ├── BH3/   # LSTM models (.keras), metrics, predictions
-│   ├── BH4/   # SHAP plots, confusion matrix, feature importance
+│   ├── BH3/   # LSTM models (.keras), metrics, predictions, tuner results
+│   ├── BH4/   # SHAP plots, interaction heatmap, confusion matrix, feature importance
 │   └── BH5/   # Regional figures, interaction results
 ├── synopsis/
-│   └── synopsis_content.md    # APA 7th edition synopsis (H₀/H₁ for all BHs)
+│   ├── synopsis_content.md    # APA 7th edition synopsis (H₀/H₁ for all BHs)
+│   └── executive_summary.md   # Non-technical stakeholder summary
 ├── docs/
+│   ├── final_report.md        # Full compiled final report (all BHs + robustness)
 │   └── qm640_compliance_checklist.md
 ├── requirements.txt
 └── README.md
@@ -135,11 +139,24 @@ qm640_energy_analysis/
 | BH4 | AUC = 0.50 | RPS_Target_Pct is top predictor (17.4% SHAP); 14 features | Reject H₀ (CV AUC = 0.9678) |
 | BH5 | Homogeneous effect | West β = −0.008 vs Northeast β = +0.001 | Reject H₀ (RPS×West p < 0.001) |
 
+### Robustness Checks
+
+| Check | Method | Finding |
+|-------|--------|---------|
+| Outlier sensitivity | Re-run BH1 excluding CO₂ outlier-flagged rows (n=33, 0.3%) | β unchanged: −0.00370 → −0.00347, p = 0.016 |
+| Dynamic panel | Arellano-Bond Diff-GMM and Sys-GMM | β range −0.00055 to −0.00555, all p < 0.01; Hansen p > 0.05 |
+| SHAP interactions | Pairwise SHAP interaction values (BH4) | RPS_Target_Pct × CDD dominates top 10 pairs (0.116 mean abs.) |
+| LSTM tuning | Keras Tuner Hyperband over 89 configurations (BH3) | No meaningful improvement; near-unit-root dynamics persist |
+
 ## Dependencies
 
 - `linearmodels` — PanelOLS, IV-2SLS, IV-LIML
 - `econml` — Causal Forest (GRF)
 - `tensorflow` / `keras` — LSTM
+- `keras-tuner` — Hyperband hyperparameter optimization for BH3
 - `xgboost==3.0.0`, `lightgbm` — gradient boosted trees
-- `shap==0.51.0` — model interpretability
+- `shap==0.51.0` — model interpretability + interaction values
+- `pydynpd` — Arellano-Bond difference and system GMM for BH1 robustness
 - `statsmodels`, `scikit-learn` — supporting statistics
+
+> **Note (macOS):** `pydynpd` requires NumPy patches for Python 3.11+ due to removed `np.in1d` and scalar conversion changes. See `src/panel_models.py` docstring for details.

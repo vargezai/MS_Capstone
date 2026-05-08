@@ -359,7 +359,278 @@ Sequence count serves as the sample size metric.""")
     print("="*60)
     print("\n  BH3 COMPLETE ✅")
 
+    run_lstm_tuning()
     return results
+
+
+def run_lstm_tuning():
+    """
+    Hyperparameter optimisation for the BH3 LSTM using Keras Tuner (Hyperband).
+    Tunes on h=1 train/val split, then applies best config to h=1, h=3, h=6.
+    Compares tuned vs baseline metrics and saves:
+      - BH3_hparam_results.csv        (all Hyperband trial results for h=1)
+      - BH3_hparam_comparison.csv     (baseline vs tuned across all horizons)
+      - BH3_hparam_tuning.png         (comparison figure)
+    """
+    import keras_tuner as kt
+    from tensorflow.keras.callbacks import EarlyStopping
+
+    print("=" * 70)
+    print("  BH3: LSTM HYPERPARAMETER OPTIMISATION (Keras Tuner — Hyperband)")
+    print("=" * 70)
+
+    # ── Load & prepare data (identical pipeline to run_bh3) ──────────────────
+    df = pd.read_csv(DATA_PATH)
+    df = df[~df["STATE"].isin(["US-TOTAL", "US", "USA"])].copy()
+    df_core = df[(df["YEAR"] >= 2005) & (df["YEAR"] <= TEST_END)].copy()
+    df_core = df_core.sort_values(["STATE", "YEAR", "MONTH"]).reset_index(drop=True)
+    for col in FEATURES:
+        df_core[col] = (df_core.groupby("STATE")[col]
+                        .transform(lambda x: x.ffill().bfill()))
+    df_core["date"] = pd.to_datetime(
+        df_core["YEAR"].astype(str) + "-" + df_core["MONTH"].astype(str) + "-01")
+    df_core = df_core.dropna(subset=FEATURES)
+
+    df_tr_raw = df_core[df_core["YEAR"] <= TRAIN_END]
+    scaler    = MinMaxScaler((0, 1))
+    scaler.fit(df_tr_raw[FEATURES].values)
+
+    df_sc           = df_core.copy()
+    df_sc[FEATURES] = scaler.transform(df_core[FEATURES].values)
+
+    # Build train/val for h=1 (used for tuning)
+    (X_tr1, y_tr1, X_va1, y_va1,
+     X_te1, y_te1, _) = build_all(
+        df_sc, FEATURES, TARGET, LOOKBACK, 1, TRAIN_END, VAL_END)
+    print(f"\n  Tuning data (h=1): Train {X_tr1.shape}  Val {X_va1.shape}")
+
+    # ── Define model builder ─────────────────────────────────────────────────
+    def _build(hp):
+        u1 = hp.Choice("units_1",  [32, 64, 128])
+        u2 = hp.Choice("units_2",  [16, 32, 64])
+        dr = hp.Choice("dropout",  [0.1, 0.2, 0.3])
+        lr = hp.Choice("lr",       [1e-3, 5e-4, 1e-4])
+        m  = Sequential([
+            LSTM(u1, return_sequences=True,
+                 input_shape=(LOOKBACK, N_FEATS)),
+            Dropout(dr),
+            LSTM(u2, return_sequences=False),
+            Dropout(dr),
+            Dense(16, activation="relu"),
+            Dense(1),
+        ])
+        m.compile(optimizer=Adam(learning_rate=lr, clipnorm=1.0),
+                  loss="mse", metrics=["mae"])
+        return m
+
+    TUNER_DIR = OUTPUT_DIR / "tuner"
+    tuner = kt.Hyperband(
+        _build,
+        objective="val_loss",
+        max_epochs=30,
+        factor=3,
+        directory=str(TUNER_DIR),
+        project_name="bh3_lstm",
+        overwrite=True,
+    )
+
+    print(f"\n  Search space summary:")
+    tuner.search_space_summary()
+
+    print(f"\n  Running Hyperband search (max_epochs=30, factor=3)...")
+    tuner.search(
+        X_tr1, y_tr1,
+        validation_data=(X_va1, y_va1),
+        epochs=30,
+        callbacks=[EarlyStopping(monitor="val_loss", patience=8,
+                                 restore_best_weights=True, verbose=0)],
+        verbose=0,
+    )
+
+    # ── Extract all trial results ─────────────────────────────────────────────
+    trial_rows = []
+    for trial in tuner.oracle.trials.values():
+        hp_vals = trial.hyperparameters.values
+        score   = trial.score
+        if score is not None:
+            trial_rows.append({
+                "trial_id":  trial.trial_id,
+                "units_1":   hp_vals.get("units_1"),
+                "units_2":   hp_vals.get("units_2"),
+                "dropout":   hp_vals.get("dropout"),
+                "lr":        hp_vals.get("lr"),
+                "val_loss":  round(float(score), 8),
+            })
+    df_trials = (pd.DataFrame(trial_rows)
+                 .sort_values("val_loss")
+                 .reset_index(drop=True))
+    df_trials["rank"] = df_trials.index + 1
+
+    best_hp = tuner.get_best_hyperparameters(1)[0]
+    best_u1 = best_hp.get("units_1")
+    best_u2 = best_hp.get("units_2")
+    best_dr = best_hp.get("dropout")
+    best_lr = best_hp.get("lr")
+
+    print(f"\n  Best hyperparameters found:")
+    print(f"    units_1 = {best_u1}  |  units_2 = {best_u2}  |  "
+          f"dropout = {best_dr}  |  lr = {best_lr:.0e}")
+    print(f"    (baseline: units_1=64, units_2=32, dropout=0.2, lr=1e-3)")
+
+    print(f"\n  Top 5 trials (h=1 val_loss):")
+    print(f"  {'Rank':<5} {'units_1':>8} {'units_2':>8} {'dropout':>8} {'lr':>8} {'val_loss':>12}")
+    print("  " + "-" * 55)
+    for _, r in df_trials.head(5).iterrows():
+        print(f"  {int(r['rank']):<5} {int(r['units_1']):>8} {int(r['units_2']):>8} "
+              f"{r['dropout']:>8.1f} {r['lr']:>8.0e} {r['val_loss']:>12.8f}")
+
+    df_trials.to_csv(OUTPUT_DIR / "BH3_hparam_results.csv", index=False)
+
+    # ── Retrain with best config across all 3 horizons ───────────────────────
+    print(f"\n{'='*70}")
+    print(f"  RETRAINING WITH BEST CONFIG ACROSS ALL 3 HORIZONS")
+    print(f"{'='*70}")
+
+    # Load baseline metrics
+    baseline_path = OUTPUT_DIR / "BH3_metrics_table.csv"
+    if baseline_path.exists():
+        df_baseline = pd.read_csv(baseline_path)
+        baseline_metrics = {
+            int(r["Horizon"]): r for _, r in df_baseline.iterrows()
+        }
+    else:
+        baseline_metrics = {}
+
+    def _build_tuned(n_features, lookback):
+        m = Sequential([
+            LSTM(best_u1, return_sequences=True,
+                 input_shape=(lookback, n_features)),
+            Dropout(best_dr),
+            LSTM(best_u2, return_sequences=False),
+            Dropout(best_dr),
+            Dense(16, activation="relu"),
+            Dense(1),
+        ])
+        m.compile(optimizer=Adam(learning_rate=best_lr, clipnorm=1.0),
+                  loss="mse", metrics=["mae"])
+        return m
+
+    comparison_rows = []
+    for horizon in HORIZONS:
+        print(f"\n  h = {horizon} month{'s' if horizon > 1 else ''}")
+
+        (X_tr, y_tr, X_va, y_va,
+         X_te, y_te, _) = build_all(
+            df_sc, FEATURES, TARGET, LOOKBACK, horizon, TRAIN_END, VAL_END)
+
+        model = _build_tuned(N_FEATS, LOOKBACK)
+        cb = [
+            EarlyStopping(monitor="val_loss", patience=15,
+                          restore_best_weights=True, verbose=0),
+            ReduceLROnPlateau(monitor="val_loss", factor=0.5,
+                              patience=7, min_lr=1e-6, verbose=0),
+        ]
+        model.fit(X_tr, y_tr, validation_data=(X_va, y_va),
+                  epochs=150, batch_size=64, callbacks=cb, verbose=0)
+
+        y_pred  = inv_transform(model.predict(X_te, verbose=0).flatten(),
+                                scaler, TGT_IDX, N_FEATS)
+        y_true  = inv_transform(y_te, scaler, TGT_IDX, N_FEATS)
+        y_naive = inv_transform(X_te[:, -1, TGT_IDX], scaler, TGT_IDX, N_FEATS)
+
+        rmse_t  = np.sqrt(mean_squared_error(y_true, y_pred))
+        r2_t    = 1 - np.sum((y_true - y_pred)**2) / np.sum((y_true - y_true.mean())**2)
+        skill_t = 1 - rmse_t / np.sqrt(mean_squared_error(y_true, y_naive))
+
+        row = {
+            "Horizon":       horizon,
+            "RMSE_baseline": round(float(baseline_metrics[horizon]["RMSE"]), 5)
+                             if horizon in baseline_metrics else float("nan"),
+            "RMSE_tuned":    round(rmse_t, 5),
+            "R2_baseline":   round(float(baseline_metrics[horizon]["R2"]), 4)
+                             if horizon in baseline_metrics else float("nan"),
+            "R2_tuned":      round(r2_t, 4),
+            "Skill_baseline":round(float(baseline_metrics[horizon]["Skill"]), 4)
+                             if horizon in baseline_metrics else float("nan"),
+            "Skill_tuned":   round(skill_t, 4),
+            "Best_units_1":  best_u1,
+            "Best_units_2":  best_u2,
+            "Best_dropout":  best_dr,
+            "Best_lr":       best_lr,
+        }
+        comparison_rows.append(row)
+
+        if horizon in baseline_metrics:
+            rmse_b  = float(baseline_metrics[horizon]["RMSE"])
+            delta   = (rmse_t - rmse_b) / rmse_b * 100
+            print(f"    Baseline RMSE={rmse_b:.5f}  Tuned RMSE={rmse_t:.5f}  "
+                  f"Δ={delta:+.1f}%  Skill={skill_t:+.4f}")
+        else:
+            print(f"    Tuned RMSE={rmse_t:.5f}  R²={r2_t:.4f}  Skill={skill_t:+.4f}")
+
+        model.save(str(OUTPUT_DIR / f"BH3_lstm_tuned_h{horizon}.keras"))
+
+    df_comp = pd.DataFrame(comparison_rows)
+    df_comp.to_csv(OUTPUT_DIR / "BH3_hparam_comparison.csv", index=False)
+
+    # ── Figure ────────────────────────────────────────────────────────────────
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+
+    # Panel 1: val_loss across trials
+    ax0 = axes[0]
+    ax0.scatter(range(len(df_trials)), df_trials["val_loss"],
+                c=range(len(df_trials)), cmap="YlOrRd_r", s=60, zorder=3)
+    ax0.axhline(df_trials["val_loss"].iloc[0], color="green", lw=1.5,
+                ls="--", label=f"Best={df_trials['val_loss'].iloc[0]:.6f}")
+    ax0.set_xlabel("Trial (sorted by val_loss)")
+    ax0.set_ylabel("Val loss (MSE, scaled)")
+    ax0.set_title("Hyperband Trials — h=1\n(all configurations)")
+    ax0.legend(fontsize=9); ax0.grid(True, alpha=0.3)
+
+    # Panel 2: RMSE baseline vs tuned per horizon
+    ax1 = axes[1]
+    x   = np.arange(len(HORIZONS))
+    w   = 0.32
+    has_baseline = all(~np.isnan(r["RMSE_baseline"]) for r in comparison_rows)
+    if has_baseline:
+        ax1.bar(x - w/2, [r["RMSE_baseline"] for r in comparison_rows],
+                w, label="Baseline", color="steelblue", edgecolor="black", lw=0.7)
+    ax1.bar(x + w/2 if has_baseline else x,
+            [r["RMSE_tuned"] for r in comparison_rows],
+            w, label="Tuned", color="darkorange", edgecolor="black", lw=0.7)
+    ax1.set_xticks(x)
+    ax1.set_xticklabels([f"h={h}" for h in HORIZONS])
+    ax1.set_ylabel("RMSE (tons/MWh)")
+    ax1.set_title("RMSE: Baseline vs Tuned\n(by forecast horizon)")
+    ax1.legend(fontsize=9); ax1.grid(True, alpha=0.3, axis="y")
+
+    # Panel 3: Skill score baseline vs tuned
+    ax2 = axes[2]
+    if has_baseline:
+        ax2.plot(HORIZONS, [r["Skill_baseline"] for r in comparison_rows],
+                 "o--", color="steelblue", lw=2, ms=8, label="Baseline")
+    ax2.plot(HORIZONS, [r["Skill_tuned"] for r in comparison_rows],
+             "s-", color="darkorange", lw=2, ms=8, label="Tuned")
+    ax2.axhline(0, color="black", lw=1, ls="--", alpha=0.6, label="Naive baseline")
+    ax2.set_xlabel("Forecast horizon (months)")
+    ax2.set_ylabel("Skill score vs naive")
+    ax2.set_title("Skill Score: Baseline vs Tuned")
+    ax2.legend(fontsize=9); ax2.grid(True, alpha=0.3)
+
+    plt.suptitle(
+        f"BH3 Hyperparameter Optimisation (Hyperband)\n"
+        f"Best config: units=({best_u1},{best_u2}), dropout={best_dr}, lr={best_lr:.0e}",
+        fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "BH3_hparam_tuning.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"\n  ✅ Saved: BH3_hparam_results.csv")
+    print(f"  ✅ Saved: BH3_hparam_comparison.csv")
+    print(f"  ✅ Saved: BH3_hparam_tuning.png")
+    print(f"  ✅ Saved: BH3_lstm_tuned_h1/3/6.keras")
+    print("\n  LSTM HYPERPARAMETER OPTIMISATION COMPLETE ✅")
+    return df_comp
 
 
 if __name__ == "__main__":

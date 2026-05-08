@@ -397,7 +397,162 @@ SAMPLE SIZE & POWER ANALYSIS — BH4
     print("="*60)
     print("\n  BH4 COMPLETE ✅")
 
+    run_shap_interaction(model=best_xgb_model, X=X, feature_names=FEATURES)
     return best_xgb_model, shap_df
+
+
+def run_shap_interaction(model=None, X=None, feature_names=None):
+    """
+    SHAP interaction effect analysis for BH4.
+    Computes shap_interaction_values() and produces:
+      - BH4_shap_interaction_matrix.csv   (mean |interaction| per feature pair)
+      - BH4_shap_interaction_heatmap.png  (annotated heatmap)
+      - BH4_shap_interaction_pairs.png    (scatter plots for top 6 pairs)
+    Can be called standalone (re-fits model) or from run_bh4() (reuses fitted model).
+    """
+    print("\n" + "=" * 70)
+    print("  SHAP INTERACTION ANALYSIS — BH4")
+    print("=" * 70)
+
+    if model is None or X is None or feature_names is None:
+        df      = pd.read_csv(DATA_PATH)
+        df      = df[~df["STATE"].isin(["US-TOTAL", "US", "USA"])].copy()
+        df_core = df[(df["YEAR"] >= CORE_START) & (df["YEAR"] <= CORE_END)].copy()
+        agg_map = {
+            "CO2_Intensity_Combined"   : "mean",
+            "Renewable_Share_Pct"      : "mean",
+            "Fossil_Intensity"         : "mean",
+            "Has_RPS"                  : "max",
+            "Years_Since_RPS"          : "max",
+            "RPS_Target_Pct"           : "max",
+            "GDP_Growth_Rate_Annual"   : "mean",
+            "Temp_Extreme"             : "mean",
+            "Total_Generation_MWh"     : "sum",
+            "Nuclear_Share_Pct"        : "mean",
+            "Avg_Temp_F"               : "mean",
+            "Clean_Share"              : "mean",
+            "RPS_Maturity"             : "mean",
+            "Fossil_to_Renewable_Ratio": "mean",
+            "HDD"                      : "mean",
+            "CDD"                      : "mean",
+            "CO2_YoY_Change"           : "mean",
+        }
+        df_annual = df_core.groupby(["STATE", "YEAR"]).agg(agg_map).reset_index()
+        df_annual["CO2_tercile"] = df_annual.groupby("YEAR")[
+            "CO2_Intensity_Combined"].transform(
+            lambda x: pd.qcut(x, q=3, labels=[0, 1, 2], duplicates="drop"))
+        df_annual["High_Decarbonizer"] = (
+            df_annual["CO2_tercile"].astype(float) == 0).astype(int)
+        df_model = df_annual.dropna(subset=FEATURES + ["High_Decarbonizer"])
+        feature_names = FEATURES
+        X = df_model[feature_names].values
+        y = df_model["High_Decarbonizer"].values
+
+        model = xgb.XGBClassifier(
+            n_estimators=300, max_depth=4, learning_rate=0.05,
+            subsample=0.8, colsample_bytree=0.8, min_child_weight=5,
+            reg_alpha=0.1, reg_lambda=1.0,
+            eval_metric="logloss", random_state=RANDOM_STATE, verbosity=0,
+        )
+        model.fit(X, y)
+        print("  (Model re-fitted for standalone run)\n")
+
+    n_features = len(feature_names)
+    print(f"  Computing SHAP interaction values  "
+          f"({X.shape[0]} samples × {n_features} features × {n_features} features)...")
+
+    explainer = shap.TreeExplainer(model)
+    sv_int    = explainer.shap_interaction_values(X)
+
+    # Handle list output (binary classification can return [neg_class, pos_class])
+    if isinstance(sv_int, list):
+        sv_int = sv_int[1]
+
+    # sv_int shape: (n_samples, n_features, n_features)
+    # diagonal = main effects, off-diagonal = pairwise interactions
+    mean_abs_int = np.abs(sv_int).mean(axis=0)         # (n_features, n_features)
+    interaction_only = mean_abs_int.copy()
+    np.fill_diagonal(interaction_only, 0)               # zero out main effects
+
+    # ── Interaction matrix table ──────────────────────────────────────────────
+    rows = []
+    for i in range(n_features):
+        for j in range(i + 1, n_features):
+            rows.append({
+                "Feature_A":        feature_names[i],
+                "Feature_B":        feature_names[j],
+                "Mean_Abs_Interaction": round(float(mean_abs_int[i, j]), 6),
+            })
+    df_int = (pd.DataFrame(rows)
+              .sort_values("Mean_Abs_Interaction", ascending=False)
+              .reset_index(drop=True))
+    df_int["Rank"] = df_int.index + 1
+
+    print(f"\n  Top 10 SHAP interaction pairs (mean |SHAP interaction value|):")
+    print(f"  {'Rank':<5} {'Feature A':<28} {'Feature B':<28} {'Mean |Interaction|':>18}")
+    print("  " + "-" * 82)
+    for _, r in df_int.head(10).iterrows():
+        print(f"  {int(r['Rank']):<5} {r['Feature_A']:<28} {r['Feature_B']:<28} "
+              f"{r['Mean_Abs_Interaction']:>18.5f}")
+
+    df_int.to_csv(OUTPUT_DIR / "BH4_shap_interaction_matrix.csv", index=False)
+
+    # ── Heatmap ───────────────────────────────────────────────────────────────
+    short = [f.replace("_", "\n") for f in feature_names]
+    fig1, ax = plt.subplots(figsize=(13, 10))
+    mask = np.zeros_like(interaction_only, dtype=bool)
+    mask[np.tril_indices_from(mask)] = True               # hide lower triangle
+    im = ax.imshow(interaction_only, cmap="YlOrRd", aspect="auto")
+    plt.colorbar(im, ax=ax, label="Mean |SHAP interaction value|", shrink=0.8)
+    ax.set_xticks(range(n_features));  ax.set_xticklabels(short, fontsize=8, rotation=45, ha="right")
+    ax.set_yticks(range(n_features));  ax.set_yticklabels(short, fontsize=8)
+    for i in range(n_features):
+        for j in range(n_features):
+            if i != j:
+                ax.text(j, i, f"{interaction_only[i,j]:.3f}",
+                        ha="center", va="center", fontsize=6,
+                        color="black" if interaction_only[i,j] < interaction_only.max()*0.6 else "white")
+    ax.set_title("BH4: SHAP Interaction Values Heatmap\n"
+                 "(off-diagonal = pairwise interaction strength)", fontsize=13, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "BH4_shap_interaction_heatmap.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    # ── Top 6 interaction pair scatter plots ──────────────────────────────────
+    top6 = df_int.head(6)
+    fig2, axes = plt.subplots(2, 3, figsize=(16, 9))
+    axes = axes.flatten()
+
+    for ax_i, (_, pair_row) in enumerate(top6.iterrows()):
+        fa, fb = pair_row["Feature_A"], pair_row["Feature_B"]
+        idx_a  = feature_names.index(fa)
+        idx_b  = feature_names.index(fb)
+
+        x_vals   = X[:, idx_a]
+        int_vals = sv_int[:, idx_a, idx_b]        # SHAP interaction A→B
+        color_by = X[:, idx_b]
+
+        sc = axes[ax_i].scatter(x_vals, int_vals, c=color_by,
+                                cmap="coolwarm", alpha=0.6, s=30, edgecolors="none")
+        plt.colorbar(sc, ax=axes[ax_i], label=fb, shrink=0.8)
+        axes[ax_i].axhline(0, color="black", lw=0.8, ls="--", alpha=0.5)
+        axes[ax_i].set_xlabel(fa, fontsize=9)
+        axes[ax_i].set_ylabel("SHAP interaction value", fontsize=8)
+        axes[ax_i].set_title(f"#{ax_i+1}: {fa}\n× {fb}", fontsize=9, fontweight="bold")
+        axes[ax_i].grid(True, alpha=0.25)
+
+    plt.suptitle("BH4: Top 6 SHAP Interaction Pairs\n"
+                 "(x = Feature A value; y = interaction SHAP; colour = Feature B value)",
+                 fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    plt.savefig(OUTPUT_DIR / "BH4_shap_interaction_pairs.png", dpi=300, bbox_inches="tight")
+    plt.close()
+
+    print(f"\n  ✅ Saved: BH4_shap_interaction_matrix.csv")
+    print(f"  ✅ Saved: BH4_shap_interaction_heatmap.png")
+    print(f"  ✅ Saved: BH4_shap_interaction_pairs.png")
+    print("\n  SHAP INTERACTION ANALYSIS COMPLETE ✅")
+    return df_int
 
 
 if __name__ == "__main__":
